@@ -41,7 +41,7 @@ Ketika user melakukan booking:
 
 ---
 
-## Aturan Bisnis
+## Aturan 
 
 Beberapa aturan yang diterapkan dalam sistem:
 
