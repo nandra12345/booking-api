@@ -11,79 +11,82 @@ use Symfony\Component\HttpKernel\Exception\UnprocessableEntityHttpException;
 
 class BookingService
 {
-    // -------------------------------------------------------------------------
-    // public api
-    // -------------------------------------------------------------------------
-
+   //public api
     /**
-     * buat booking untuk user pada schedule
+     * Create a new booking for $user on $schedule.
+     *
+     * Business rules enforced:
+     *   1. A user cannot book the same schedule more than once.
+     *   2. Slot capacity must not be exceeded.
      *
      * @throws ConflictHttpException
      * @throws UnprocessableEntityHttpException
      */
+   
     public function book(User $user, int $scheduleId): Booking
     {
         return DB::transaction(function () use ($user, $scheduleId) {
+            
             /** @var Schedule $schedule */
             $schedule = Schedule::lockForUpdate()->findOrFail($scheduleId);
 
-            $this->ensureNotAlreadyBooked($user, $schedule);
             $this->ensureSlotAvailable($schedule);
 
+            
+            $existing = Booking::withTrashed()
+                ->where('schedule_id', $schedule->id)
+                ->where('user_id', $user->id)
+                ->first();
+
+            if ($existing) {
+                
+                if (! $existing->trashed()) {
+                    throw new ConflictHttpException(
+                        'You have already booked this schedule.'
+                    );
+                }
+
+                
+                $existing->restore();
+                $existing->update(['status' => 'confirmed']); // FIX #2
+
+                return $existing->fresh();
+            }
+
+            // No prior booking → create fresh row
             return Booking::create([
                 'schedule_id' => $schedule->id,
                 'user_id'     => $user->id,
-                'status'      => 'booked',
+                'status'      => 'confirmed', // FIX #2
             ]);
         });
     }
 
-    /**
-     * batalkan booking milik user
-     *
-     * @throws \Illuminate\Auth\Access\AuthorizationException
-     */
-    public function cancel(User $user, int $bookingId): Booking
+       public function cancel(User $user, int $bookingId): Booking
     {
         /** @var Booking $booking */
         $booking = Booking::findOrFail($bookingId);
 
         if ($booking->user_id !== $user->id) {
-            abort(403, 'you are not allowed to cancel this booking.');
+            abort(403, 'You are not allowed to cancel this booking.');
         }
 
         if ($booking->isCancelled()) {
-            throw new UnprocessableEntityHttpException('this booking is already cancelled.');
+            throw new UnprocessableEntityHttpException('This booking is already cancelled.');
         }
 
+        
         $booking->cancel();
 
-        return $booking->fresh()->load('schedule');
+        return $booking->fresh(['schedule']);
     }
 
-    // -------------------------------------------------------------------------
-    // private helpers
-    // -------------------------------------------------------------------------
-
-    private function ensureNotAlreadyBooked(User $user, Schedule $schedule): void
-    {
-        $alreadyBooked = Booking::where('schedule_id', $schedule->id)
-            ->where('user_id', $user->id)
-            ->where('status', '!=', 'cancelled')
-            ->exists();
-
-        if ($alreadyBooked) {
-            throw new ConflictHttpException(
-                'you have already booked this schedule.'
-            );
-        }
-    }
 
     private function ensureSlotAvailable(Schedule $schedule): void
     {
         if (! $schedule->hasAvailableSlots()) {
             throw new UnprocessableEntityHttpException(
-                'no available slots remaining for this schedule.'
+                'No available slots remaining for this schedule.'
             );
         }
     }

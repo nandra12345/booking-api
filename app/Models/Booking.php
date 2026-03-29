@@ -22,9 +22,6 @@ class Booking extends Model
         'user_id'     => 'integer',
     ];
 
-    // -------------------------------------------------------------------------
-    // relationships
-    // -------------------------------------------------------------------------
 
     public function schedule(): BelongsTo
     {
@@ -37,17 +34,21 @@ class Booking extends Model
     }
 
     // -------------------------------------------------------------------------
-    // helpers
+    // Helpers
     // -------------------------------------------------------------------------
-public function isCancelled(): bool
-{
-    return $this->status === 'cancelled';
-}
 
-public function cancel(): void
-{
-    $this->update([
-        'status' => 'cancelled'
-    ]);
-}
+    public function isCancelled(): bool
+    {
+        return $this->status === 'cancelled';
+    }
+
+    
+    public function cancel(): bool
+    {
+        $this->status = 'cancelled';
+        $this->save();
+
+        // Triggers SoftDeletes → sets deleted_at timestamp
+        return $this->delete();
+    }
 }
